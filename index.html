@@ -1,37 +1,203 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FIFABUZZ AI REALITY</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIFABUZZ AI REALITY V2</title>
 <style>
-body{background:#101827;color:white;text-align:center;font-family:Arial;padding:15px}
-video{width:100%;background:#263449;border-radius:15px}
-button{background:#00b5a5;padding:16px;margin:8px;border:0;border-radius:12px;font-size:18px}
+*{box-sizing:border-box}
+body{margin:0;background:#101827;color:white;font-family:Arial;text-align:center;padding:16px}
+h1{font-size:26px}
+canvas{width:100%;max-width:540px;aspect-ratio:3/4;background:#182842;border-radius:18px}
+button,label{background:#203451;color:white;border:1px solid #526580;border-radius:12px;padding:15px;font-size:16px}
+button:active{background:#315b70}
+#start{background:#00b5a5;color:#061b20;font-weight:bold}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:540px;margin:15px auto}
+.wide{grid-column:span 2}
+video{display:none}
+input{display:none}
+#status{color:#c8d7e8}
 </style>
 </head>
 <body>
 <h1>FIFABUZZ AI REALITY</h1>
-<p>Samsung Front Camera Test</p>
-<video id="cam" autoplay playsinline muted></video>
-<p id="status">Camera ready</p>
-<button onclick="startCamera()">Start Camera</button>
-<button onclick="stopCamera()">Stop Camera</button>
+<p>LIVE AI BACKGROUND CHANGER</p>
+<canvas id="view" width="480" height="640"></canvas>
+<p id="status">Tap Start AI Camera</p>
+<div class="controls">
+<button id="start" class="wide">Start AI Camera</button>
+<button onclick="scene='city'">🌃 City</button>
+<button onclick="scene='beach'">🏝️ Beach</button>
+<button onclick="scene='studio'">🎙️ Studio</button>
+<button onclick="scene='space'">🚀 Space</button>
+<label class="wide">Upload Photo or Video
+<input type="file" id="upload" accept="image/*,video/*">
+</label>
+<button id="stop">Stop Camera</button>
+<button id="save">Save Photo</button>
+</div>
+<video id="camera" autoplay playsinline muted></video>
+<video id="bgvideo" autoplay playsinline muted loop></video>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/selfie_segmentation.js"></script>
 <script>
-let stream;
-async function startCamera(){
+const canvas=document.getElementById("view");
+const ctx=canvas.getContext("2d");
+const cam=document.getElementById("camera");
+const bgvideo=document.getElementById("bgvideo");
+const status=document.getElementById("status");
+const extra=document.createElement("canvas");
+const ex=extra.getContext("2d");
+extra.width=480;
+extra.height=640;
+let scene="beach",image=null,videoBG=false;
+let stream=null,segmenter=null,running=false,url=null;
+
+function background(){
+const w=480,h=640;
+if(videoBG&&bgvideo.readyState>=2){
+ctx.drawImage(bgvideo,0,0,w,h);return;
+}
+if(image&&image.complete&&image.naturalWidth){
+ctx.drawImage(image,0,0,w,h);return;
+}
+let g=ctx.createLinearGradient(0,0,0,h);
+if(scene==="beach"){
+g.addColorStop(0,"#81d7f8");
+g.addColorStop(.59,"#7de7ef");
+g.addColorStop(.6,"#1685a8");
+g.addColorStop(.78,"#45c7ca");
+g.addColorStop(.79,"#f1d190");
+g.addColorStop(1,"#eec47d");
+}else if(scene==="city"){
+g.addColorStop(0,"#11295a");
+g.addColorStop(.6,"#8c5275");
+g.addColorStop(1,"#17223d");
+}else if(scene==="studio"){
+g.addColorStop(0,"#161b46");
+g.addColorStop(1,"#293e73");
+}else{
+g.addColorStop(0,"#030817");
+g.addColorStop(1,"#292758");
+}
+ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+if(scene==="studio"){
+ctx.fillStyle="#74e4f3";
+ctx.font="bold 36px Arial";
+ctx.textAlign="center";
+ctx.fillText("FIFABUZZ",240,110);
+ctx.font="22px Arial";
+ctx.fillText("LIVE STUDIO",240,150);
+}
+if(scene==="city"){
+for(let i=0;i<16;i++){
+let x=i*32,y=300+(i*53%140);
+ctx.fillStyle="#111b36";
+ctx.fillRect(x,y,28,h-y);
+ctx.fillStyle="#f5cd8d";
+for(let j=y+20;j<h;j+=32)
+ctx.fillRect(x+9,j,5,9);
+}
+}
+if(scene==="space"){
+ctx.fillStyle="#ffffff";
+for(let i=0;i<90;i++)
+ctx.fillRect((i*137)%480,(i*229)%640,2,2);
+}
+}
+
+function render(result){
+if(!running)return;
+ex.clearRect(0,0,480,640);
+ex.globalCompositeOperation="source-over";
+ex.drawImage(result.segmentationMask,0,0,480,640);
+ex.globalCompositeOperation="source-in";
+ex.drawImage(result.image,0,0,480,640);
+ex.globalCompositeOperation="source-over";
+ctx.clearRect(0,0,480,640);
+background();
+ctx.drawImage(extra,0,0);
+}
+
+async function process(){
+while(running){
 try{
-stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"},audio:false});
-document.getElementById("cam").srcObject=stream;
-document.getElementById("status").textContent="Camera working!";
+if(cam.readyState>=2)
+await segmenter.send({image:cam});
+await new Promise(r=>setTimeout(r,45));
 }catch(e){
-document.getElementById("status").textContent="Camera error: "+e.message;
+status.textContent="AI error: "+e.message;
+running=false;
 }
 }
-function stopCamera(){
-if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
-document.getElementById("cam").srcObject=null;
-document.getElementById("status").textContent="Camera stopped";
 }
+
+document.getElementById("start").onclick=async()=>{
+if(running)return;
+try{
+status.textContent="Loading AI...";
+if(!window.SelfieSegmentation)
+throw Error("AI library unavailable");
+if(!segmenter){
+segmenter=new SelfieSegmentation({
+locateFile:f=>"https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1/"+f
+});
+segmenter.setOptions({modelSelection:0});
+segmenter.onResults(render);
+}
+stream=await navigator.mediaDevices.getUserMedia({
+video:{facingMode:"user",width:640,height:480},
+audio:false
+});
+cam.srcObject=stream;
+await cam.play();
+running=true;
+status.textContent="AI Background Active!";
+process();
+}catch(e){
+status.textContent="Camera error: "+e.message;
+}
+};
+
+document.getElementById("stop").onclick=()=>{
+running=false;
+if(stream)stream.getTracks().forEach(t=>t.stop());
+stream=null;
+cam.srcObject=null;
+status.textContent="Camera stopped";
+background();
+};
+
+document.querySelectorAll(".controls button").forEach(b=>{
+if(["city","beach","studio","space"].includes(b.id))return;
+});
+
+document.getElementById("upload").onchange=async e=>{
+let f=e.target.files[0];
+if(!f)return;
+if(url)URL.revokeObjectURL(url);
+url=URL.createObjectURL(f);
+videoBG=f.type.startsWith("video/");
+image=null;
+if(videoBG){
+bgvideo.src=url;
+try{await bgvideo.play()}catch(e){}
+}else{
+image=new Image();
+image.src=url;
+await image.decode().catch(()=>{});
+}
+if(!running)background();
+};
+
+document.getElementById("save").onclick=()=>{
+let a=document.createElement("a");
+a.download="FIFABUZZ-AI.png";
+a.href=canvas.toDataURL("image/png");
+a.click();
+};
+
+background();
 </script>
 </body>
 </html>
